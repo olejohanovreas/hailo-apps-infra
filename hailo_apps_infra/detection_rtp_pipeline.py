@@ -20,7 +20,7 @@ from hailo_apps_infra.gstreamer_helper_pipelines import(
     INFERENCE_PIPELINE_WRAPPER,
     TRACKER_PIPELINE,
     USER_CALLBACK_PIPELINE,
-    DISPLAY_PIPELINE,
+    RTP_SINK_PIPELINE,
 )
 from hailo_apps_infra.gstreamer_app import (
     GStreamerApp,
@@ -44,20 +44,15 @@ class GStreamerDetectionApp(GStreamerApp):
             default=None,
             help="Path to costume labels JSON file",
         )
-
         # Call the parent class constructor
         super().__init__(parser, user_data)
-
         # Additional initialization code can be added here
-        self.video_width = 640
-        self.video_height = 640
-        
-        # Set Hailo parameters - these parameters should be set based on the model used
-        self.batch_size = 2
+        # Set Hailo parameters these parameters should be set based on the model used
+        self.batch_size = 1
         nms_score_threshold = 0.3
         nms_iou_threshold = 0.45
-        if self.options_menu.input is None:  # Setting up a new application-specific default video (overrides the default video set in the GStreamerApp constructor)
-            self.video_source = os.path.join(os.path.dirname(os.path.abspath(__file__)), '../resources/example_640.mp4')
+
+
         # Determine the architecture if not specified
         if self.options_menu.arch is None:
             detected_arch = detect_hailo_arch()
@@ -68,35 +63,20 @@ class GStreamerDetectionApp(GStreamerApp):
         else:
             self.arch = self.options_menu.arch
 
+
         if self.options_menu.hef_path is not None:
             self.hef_path = self.options_menu.hef_path
         # Set the HEF file path based on the arch
         elif self.arch == "hailo8":
-            self.hef_path = os.path.join(self.current_path, '../resources/yolov6n.hef')
+            self.hef_path = os.path.join(self.current_path, '../resources/yolov8m.hef')
         else:  # hailo8l
-            self.hef_path = os.path.join(self.current_path, '../resources/yolov6n_h8l.hef')
+            self.hef_path = os.path.join(self.current_path, '../resources/yolov8s_h8l.hef')
 
         # Set the post-processing shared object file
         self.post_process_so = os.path.join(self.current_path, '../resources/libyolo_hailortpp_postprocess.so')
-        self.post_function_name = "filter"
-
+        self.post_function_name = "filter_letterbox"
         # User-defined label JSON file
         self.labels_json = self.options_menu.labels_json
-
-        self.show_fps = False
-
-        REMOTE_IP = "192.168.4.7"
-        REMOTE_PORT = 5000
-
-        sink_chain = (
-            "videoconvert "
-            "! openh264enc bitrate=2000 gop-size=30 "
-            "! h264parse "
-            "! rtph264pay config-interval=1 pt=96 "
-            f"! udpsink host={REMOTE_IP} port={REMOTE_PORT} sync=false"
-        )
-
-        self.video_sink = f'"{sink_chain}"'
 
         self.app_callback = app_callback
 
@@ -107,12 +87,13 @@ class GStreamerDetectionApp(GStreamerApp):
         )
 
         # Set the process title
-        setproctitle.setproctitle("Hailo Detection Simple App")
+        setproctitle.setproctitle("Hailo Detection App")
 
         self.create_pipeline()
 
     def get_pipeline_string(self):
-        source_pipeline = SOURCE_PIPELINE(self.video_source, self.video_width, self.video_height, no_webcam_compression=True)
+        source_pipeline = SOURCE_PIPELINE(self.video_source, self.video_width, self.video_height)
+        print(f"THE SOURCE PIPELINE -> {source_pipeline}")
         detection_pipeline = INFERENCE_PIPELINE(
             hef_path=self.hef_path,
             post_process_so=self.post_process_so,
@@ -120,14 +101,17 @@ class GStreamerDetectionApp(GStreamerApp):
             batch_size=self.batch_size,
             config_json=self.labels_json,
             additional_params=self.thresholds_str)
+        detection_pipeline_wrapper = INFERENCE_PIPELINE_WRAPPER(detection_pipeline)
+        tracker_pipeline = TRACKER_PIPELINE(class_id=1)
         user_callback_pipeline = USER_CALLBACK_PIPELINE()
-        display_pipeline = DISPLAY_PIPELINE(video_sink=self.video_sink, sync=self.sync, show_fps=self.show_fps)
+        rtp_sink_pipeline = RTP_SINK_PIPELINE()
+        print(f"THE RTP SINK PIPELINE -> {rtp_sink_pipeline}")
 
         pipeline_string = (
             f'{source_pipeline} ! '
-            f'{detection_pipeline} ! '
+            f'{detection_pipeline_wrapper} ! '
             f'{user_callback_pipeline} ! '
-            f'{display_pipeline}'
+            f'{rtp_sink_pipeline}'
         )
         print(pipeline_string)
         return pipeline_string

@@ -67,7 +67,7 @@ def get_caps_from_pad(pad: Gst.Pad):
 def get_default_parser():
     parser = argparse.ArgumentParser(description="Hailo App Help")
     parser.add_argument(
-        "--input", "-i", type=str, default=None,
+        "--input", "-i", type=str, default="rpi",
         help="Input source. Can be a file, USB (webcam), RPi camera (CSI camera module) or ximage. \
         For RPi camera use '-i rpi' \
         For automatically detect a connected usb camera, use '-i usb' \
@@ -84,7 +84,7 @@ def get_default_parser():
         )
     parser.add_argument(
             "--hef-path",
-            default=None,
+            default="resources/yolov11s.hef",
             help="Path to HEF file",
         )
     parser.add_argument(
